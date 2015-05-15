@@ -1,0 +1,2 @@
+/usr/bin/ar cr ../libmtsdk.a  CMakeFiles/mtsdk.dir/src/conio.cpp.o CMakeFiles/mtsdk.dir/src/deviceclass.cpp.o
+/usr/bin/ranlib ../libmtsdk.a

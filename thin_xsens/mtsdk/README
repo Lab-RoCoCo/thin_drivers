@@ -1,0 +1,38 @@
+******************************
+How to build the mtsdk library
+******************************
+
+1) Install the development version of the udev library, e.g.:
+
+sudo apt-get install libudev-dev
+
+2) Create a *.rules file in /etc/udev/rules.d/ (e.g., sudo gedit /etc/udev/rules.d/50-xsens.rules) 
+and add to this file the following line:
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="2639", ACTION=="add", GROUP="adm", MODE="0660"
+
+and restart udev (e.g., sudo /etc/init.d/udev restart )
+
+3) Add the following line:
+
+blacklist xsens_mt
+
+at the end of the /etc/modprobe.d/blacklist.conf file
+
+4) Eventually, remove the xsens_mt from the loaded modules list
+
+sudo modprobe -r xsens_mt
+
+5) Move inside the mtsdk folder, create a /build directory and build the library:
+
+mkdir build
+cd build
+cmake ..
+make
+
+6) Plug your MTi 10-series or MTi 100-series device and test the library:
+
+./example_orientation    # Output the orientation quaternion, 100 Hz
+./example_calib          # Output the calibrated acceleration, angular velocity and magnetic field, 100 Hz
+
+(you will find these binaries inside the folder mtsdk/bin)

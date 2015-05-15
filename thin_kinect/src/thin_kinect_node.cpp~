@@ -1,0 +1,355 @@
+#include <ros/ros.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <stdio.h>
+#include <iostream>
+#include <stdlib.h> 
+#include <string>
+#include "libfreenect.h"
+#include "libfreenect_sync.h"
+
+
+typedef struct freenect_thread_params {
+  volatile int run;
+  int device_num;
+  freenect_frame_mode video_mode;
+  freenect_frame_mode depth_mode;
+  //IMAGE
+  ros::Publisher pub_depth;
+  ros::Publisher pub_rgb;
+  //CAMERA INFO	
+  ros::Publisher pub_camera_info_depth;
+  ros::Publisher pub_camera_info_rgb;
+  std::string frame_id;
+  std::string topic;
+  int frame_skip;
+} freenect_thread_params;
+
+freenect_thread_params params;
+
+void* freenect_thread(void* v) {
+  freenect_thread_params* params = (freenect_thread_params*) v;
+  int retval = 0;
+
+  sensor_msgs::CameraInfo rgb_info;
+  sensor_msgs::Image rgb_image;
+  if (params->video_mode.video_format != FREENECT_VIDEO_DUMMY) {
+    rgb_image.header.frame_id=params->frame_id+"_rgb";
+    rgb_image.is_bigendian=1;
+    rgb_image.height=params->video_mode.height;
+    rgb_image.width=params->video_mode.width;
+    rgb_image.data.resize(params->video_mode.bytes);
+    rgb_image.step=params->video_mode.bytes/params->video_mode.height;
+    switch(params->video_mode.video_format){
+    case FREENECT_VIDEO_RGB: rgb_image.encoding = "rgb8"; break;
+    case FREENECT_VIDEO_BAYER: rgb_image.encoding = "bayer_gbrg8"; break;
+    case FREENECT_VIDEO_IR_8BIT: rgb_image.encoding = "mono8"; break;
+    case FREENECT_VIDEO_IR_10BIT: rgb_image.encoding = "mono16"; break;
+    case FREENECT_VIDEO_IR_10BIT_PACKED: rgb_image.encoding = "mono10"; break;
+    case FREENECT_VIDEO_YUV_RGB: rgb_image.encoding = "yuv_rgb"; break;
+    case FREENECT_VIDEO_YUV_RAW: rgb_image.encoding = "yuv_raw"; break;
+    }
+
+
+    float hfov=M_PI/180.0*58.5;
+    float vfov=M_PI/180.0*46.6;
+
+    rgb_info.header.frame_id=rgb_image.header.frame_id;
+    rgb_info.width=rgb_image.width;
+    rgb_info.height=rgb_image.height;
+    rgb_info.K.fill(0);
+    rgb_info.K[0]=rgb_info.width/(2*tan(hfov/2)); //fx
+    rgb_info.K[4]=rgb_info.height/(2*tan(vfov/2));; //fy
+    rgb_info.K[2]=rgb_info.width/2; //cx
+    rgb_info.K[5]=rgb_info.height/2; //cy
+    rgb_info.K[8]=1;
+  }
+  printf("rgb image necoding: %s\n", rgb_image.encoding.c_str());
+
+ 
+  sensor_msgs::CameraInfo depth_info;
+  sensor_msgs::Image depth_image;
+  if (params->depth_mode.depth_format != FREENECT_DEPTH_DUMMY) {
+    if (params->depth_mode.depth_format == FREENECT_DEPTH_REGISTERED) {
+      depth_image.header.frame_id=params->frame_id+"_rgb";
+    } else 
+      depth_image.header.frame_id=params->frame_id+"_depth";
+    depth_image.is_bigendian=1;
+    depth_image.height=params->depth_mode.height;
+    depth_image.width=params->depth_mode.width;
+    depth_image.data.resize(params->depth_mode.bytes);
+    depth_image.step=params->depth_mode.bytes/params->depth_mode.height;
+    switch(params->video_mode.video_format){
+    case FREENECT_DEPTH_11BIT: depth_image.encoding = "mono16"; break;
+    case FREENECT_DEPTH_10BIT: depth_image.encoding = "mono16"; break;
+    case FREENECT_DEPTH_11BIT_PACKED: depth_image.encoding  = "mono11"; break;
+    case FREENECT_DEPTH_10BIT_PACKED: depth_image.encoding = "mono10"; break;
+    case FREENECT_DEPTH_REGISTERED:  depth_image.encoding = "mono16"; break;
+    case FREENECT_DEPTH_MM: depth_image.encoding = "mono16"; break;
+    }
+ 
+
+    float hfov=M_PI/180.0*58.5;
+    float vfov=M_PI/180.0*46.6;
+
+    depth_info.header.frame_id=depth_image.header.frame_id;
+    depth_info.width=depth_image.width;
+    depth_info.height=depth_image.height;
+    depth_info.K.fill(0);
+    depth_info.K[0]=depth_info.width/(2*tan(hfov/2)); //fx
+    depth_info.K[4]=depth_info.height/(2*tan(vfov/2));; //fy
+    depth_info.K[2]=depth_info.width/2; //cx
+    depth_info.K[5]=depth_info.height/2; //cy
+    depth_info.K[8]=1;
+  }
+
+  printf("depth image necoding: %s\n", depth_image.encoding.c_str());
+  int count = 0;
+  int num_frames_stat=64;
+  struct timeval previous_time;
+  gettimeofday(&previous_time, 0);
+  while (params->run && ! retval) {
+    void* video_buffer=0, *depth_buffer=0;
+    uint32_t video_ts;
+    uint32_t depth_ts;
+
+    if (params->depth_mode.depth_format != FREENECT_DEPTH_DUMMY) {
+      retval = freenect_sync_get_depth(&depth_buffer, 
+				       &depth_ts, 
+				       params->device_num, 
+				       params->depth_mode.depth_format);
+      if (retval < 0) {
+	printf("error in getting depth: %d\n", retval);
+	break;
+      } else if (! (count % params->frame_skip)) {
+	depth_image.header.stamp=ros::Time::now();
+	depth_image.header.seq=count;
+	memcpy(&depth_image.data[0], depth_buffer, depth_image.data.size());
+	params->pub_depth.publish(depth_image);
+	depth_info.header.seq = count;
+	depth_info.header.stamp=depth_image.header.stamp;
+	params->pub_camera_info_depth.publish(depth_info);
+      }
+    }
+    if (params->video_mode.video_format != FREENECT_VIDEO_DUMMY) {
+      retval = freenect_sync_get_video(&video_buffer, 
+				       &video_ts, 
+				       params->device_num, 
+				       params->video_mode.video_format);
+      if (retval < 0) {
+	printf("error in getting rgb: %d\n", retval);
+	break;
+      } else if (! (count % params->frame_skip)){
+	rgb_image.header.stamp=ros::Time::now();
+	rgb_image.header.seq=count;
+	memcpy(&rgb_image.data[0], video_buffer, rgb_image.data.size());
+	params->pub_rgb.publish(rgb_image);
+	rgb_info.header.seq = count;
+	rgb_info.header.stamp=depth_image.header.stamp;
+	params->pub_camera_info_rgb.publish(rgb_info);
+      }
+    }
+    if (!(count%num_frames_stat)){
+      struct timeval current_time, interval;
+      gettimeofday(&current_time, 0);
+      timersub(&current_time, &previous_time, &interval);
+      previous_time = current_time;
+      double fps = num_frames_stat/(interval.tv_sec +1e-6*interval.tv_usec);
+      printf("running at %lf fps\n", fps);
+      fflush(stdout);
+     
+    }
+    count++;
+  }
+  freenect_sync_stop();
+  
+}
+
+
+
+
+int main(int argc, char **argv){
+
+  std::string topic;
+  std::string frame_id;
+  int device_num;
+  int depth_mode;
+  int rgb_mode;
+  int _registration;
+  int _frame_skip;
+  printf("starting\n");
+  fflush(stdout);
+  ros::init(argc, argv, "thin_kinect_node",ros::init_options::AnonymousName);
+  ros::NodeHandle n("~");
+
+  //Base topic name
+  n.param("topic", topic, std::string("/camera"));
+  //Resolution
+  //0 = 160x120
+  //1 = 320x240
+  n.param("depth_mode", depth_mode, -1);
+  n.param("rgb_mode", rgb_mode, -1);
+  n.param("registration", _registration,0);
+  n.param("frame_id", frame_id, std::string("camera_frame"));
+  n.param("device_num", device_num, -1);
+  n.param("frame_skip", _frame_skip, 0);
+
+
+  printf("Launched with params:\n");
+  printf("_topic:= %s\n",topic.c_str());
+  printf("_frame_id:= %s\n",frame_id.c_str());
+  printf("_device_num:= %d\n", device_num);
+  printf("_depth_mode:= %d\n",depth_mode);
+  printf("_rgb_mode:= %d\n",rgb_mode);
+  printf("_frame_skip:= %d\n", _frame_skip);
+  printf("_registration:= %d\n",_registration);
+  fflush(stdout);
+
+
+
+  if  (_frame_skip<=0)
+    _frame_skip=1;
+
+  //freenect STUFF
+  freenect_context* context;
+  int retval = freenect_init(&context,NULL);
+  if (retval<0) {
+    printf("error in initializing freenect %d \n", retval);
+    return 0;
+  }
+
+  // select only the camera
+  freenect_select_subdevices(context, FREENECT_DEVICE_CAMERA);
+
+  //enumerate the devices
+  int num_devices = freenect_num_devices(context);
+  if (num_devices<=0) {
+    printf("no devices found\n");
+    return 0;
+  }  else {
+    printf("found %d devices\n", num_devices);
+  }
+
+  // obtain the list of attributes for each device
+  struct freenect_device_attributes* attribute_list;
+  retval = freenect_list_device_attributes(context, &attribute_list);
+  if (retval<0) {
+    printf("error getting attribute list %d \n", retval);
+    return 0;
+  }
+  
+  struct freenect_device_attributes* aux = attribute_list;
+  int k = 0;
+  while (aux) {
+    printf("device: %02d, serial %s\n", k, aux->camera_serial);
+    aux = aux->next;
+    k++;
+  }
+  
+
+  int num_video_modes = freenect_get_video_mode_count();
+  printf ("found %d video modes\n", num_video_modes);
+  int i;
+  for (i = 0; i< num_video_modes; i++){
+    const char* fmt = 0;
+    freenect_frame_mode mode = freenect_get_video_mode(i);
+    switch(mode.video_format) {
+    case FREENECT_VIDEO_RGB: fmt = "FREENECT_VIDEO_RGB"; break;
+    case FREENECT_VIDEO_BAYER: fmt = "FREENECT_VIDEO_BAYER"; break;
+    case FREENECT_VIDEO_IR_8BIT: fmt = "FREENECT_VIDEO_IR_8BIT"; break;
+    case FREENECT_VIDEO_IR_10BIT: fmt = "FREENECT_VIDEO_IR_10BIT"; break;
+    case FREENECT_VIDEO_IR_10BIT_PACKED: fmt = "FREENECT_VIDEO_IR_10BIT_PACKED"; break;
+    case FREENECT_VIDEO_YUV_RGB: fmt = "FREENECT_VIDEO_YUV_RGB"; break;
+    case FREENECT_VIDEO_YUV_RAW: fmt = "FREENECT_VIDEO_YUV_RAW"; break;
+    }
+
+    if (device_num<0)
+      printf("mode: %02d, format: %s, width: %d, height: %d, bpp: %d, padding: %d, framerate: %d, valid: %d, bytes: %d\n",
+	     i, 
+	     fmt, mode.width, 
+	     mode.height, 
+	     mode.data_bits_per_pixel, 
+	     mode.padding_bits_per_pixel, 
+	     mode.framerate,
+	     mode.is_valid,
+	     mode.bytes);
+
+  }
+
+
+  int num_depth_modes = freenect_get_depth_mode_count();
+  printf ("found %d depth modes\n", num_depth_modes);
+  for (i = 0; i< num_depth_modes; i++){
+    const char* fmt = 0;
+    freenect_frame_mode mode = freenect_get_depth_mode(i);
+    switch(mode.depth_format) {
+    case FREENECT_DEPTH_11BIT: fmt = "FREENECT_DEPTH_11BIT"; break;
+    case FREENECT_DEPTH_10BIT: fmt = "FREENECT_DEPTH_10BIT"; break;
+    case FREENECT_DEPTH_11BIT_PACKED: fmt = "FREENECT_DEPTH_11BIT_PACKED"; break;
+    case FREENECT_DEPTH_10BIT_PACKED: fmt = "FREENECT_DEPTH_10BIT_PACKED"; break;
+    case FREENECT_DEPTH_REGISTERED: fmt = "FREENECT_DEPTH_REGISTERED"; break;
+    case FREENECT_DEPTH_MM: fmt = "FREENECT_DEPTH_MM"; break;
+    }
+    
+    if (device_num<0)
+      printf("mode: %02d, format: %s, width: %d, height: %d, bpp: %d, padding: %d, framerate: %d, valid: %d, bytes: %d\n",
+	     i, 
+	     fmt, mode.width, 
+	     mode.height, 
+	     mode.data_bits_per_pixel, 
+	     mode.padding_bits_per_pixel, 
+	     mode.framerate,
+	     mode.is_valid,
+	     mode.bytes);
+
+  }
+
+
+  if (device_num>k || device_num<0 ){
+    printf("device number %d  does not exist, aborting \n", k);
+    return 0;
+  }
+  if ((rgb_mode >num_video_modes || rgb_mode<0) &&
+      (depth_mode >num_depth_modes || depth_mode<0))
+    return 0;
+
+  char* video_buffer, *depth_buffer;
+
+  static freenect_thread_params params;
+  if (rgb_mode >num_video_modes || rgb_mode<0)
+    params.video_mode.video_format = FREENECT_VIDEO_DUMMY;
+  else  {
+    params.video_mode = freenect_get_video_mode(rgb_mode);
+    params.pub_rgb = n.advertise<sensor_msgs::Image>("/"+topic+"/rgb/image_raw", 1);
+    params.pub_camera_info_rgb = n.advertise<sensor_msgs::CameraInfo>("/"+topic+"/rgb/camera_info", 1);
+  }
+
+  if (depth_mode >num_depth_modes || depth_mode<0)
+    params.depth_mode.depth_format = FREENECT_DEPTH_DUMMY;
+  else {
+    params.depth_mode = freenect_get_depth_mode(depth_mode);
+    params.pub_depth = n.advertise<sensor_msgs::Image>("/"+topic+"/depth/image_raw", 1);
+    params.pub_camera_info_depth = n.advertise<sensor_msgs::CameraInfo>("/"+topic+"/depth/camera_info", 1);
+
+
+  }
+
+  if (_registration) {
+    printf("Warning, registration enable, overriding user selection of depth mode");
+    params.depth_mode.depth_format = FREENECT_DEPTH_REGISTERED;
+  }
+
+  params.run = 1;
+  params.device_num = device_num;
+  params.frame_skip = _frame_skip;
+  params.frame_id = frame_id;
+  pthread_t runner;
+  pthread_create(&runner, 0, freenect_thread, (void*) &params);
+  ros::spin();
+  params.run = 0;
+  void* result;
+  pthread_join(runner, &result);
+  printf("shutting down\n");
+  return 0;
+}
+

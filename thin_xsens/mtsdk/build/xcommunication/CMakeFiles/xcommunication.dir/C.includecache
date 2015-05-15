@@ -1,0 +1,18 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../xcommunication/../xstypes/include/xsens/xssyncline.h
+
+../xcommunication/./include/synclinemk4.h
+xsens/xssyncline.h
+-
+
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/xcommunication/src/synclinemk4.c
+synclinemk4.h
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/xcommunication/src/synclinemk4.h
+

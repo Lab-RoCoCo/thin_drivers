@@ -1,0 +1,5 @@
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/build/CMakeFiles/example_calib.dir
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/build/CMakeFiles/example_orientation.dir
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/build/CMakeFiles/mtsdk.dir
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/build/xcommunication/CMakeFiles/xcommunication.dir
+/home/johann/repo-bonn/thin_drivers/thin_xsens/mtsdk/build/xstypes/CMakeFiles/xstypes.dir

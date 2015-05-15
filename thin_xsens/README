@@ -1,0 +1,12 @@
+**************
+thin_xens_node
+**************
+
+1) Build the mdsdk library, included in the thin_xens_node (see the README file in mdsdk)
+
+2) Compile the node as usual:
+
+cd ***/catkin_ws
+source ./devel/setup.bash
+catkin_make 
+
