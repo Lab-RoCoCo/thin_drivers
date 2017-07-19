@@ -9,15 +9,30 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
 )
 
-FIND_PATH(_libfreenect_found libfreenect.so PATHS /usr/local/lib/ NO_DEFAULT_PATH)
-IF(NOT _libfreenect_found)
-    MESSAGE(WARNING "No libfreenect.so found in /usr/local/lib, please compile libfreenect from source if you want to compile thin_kinect")
-    RETURN()
-ENDIF()
+# additional cmake modules (freenect)
+LIST(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules)
 
-SET(LIBFREENECT_INCLUDE_DIR /usr/local/include/libfreenect)
-SET(LIBFREENECT_LIBRARIES   /usr/local/lib/libfreenect.so /usr/local/lib/libfreenect_sync.so)
+# Find libfreenect
+find_package(libfreenect REQUIRED)
+if(libfreenect_FOUND)
+    message("-- libfreenect was found")
+    include_directories(${FREENECT_INCLUDE_DIRS})
+else(libfreenect_FOUND)
+    message(WARNING "libfreenect was not found, please install libfreenect (for example ros-distro-freenect-camera package) if you want to compile thin_kinect")
+    return()
+endif(libfreenect_FOUND)
 
+# Find libfreenectsync
+find_package(libfreenectsync REQUIRED)
+if(libfreenectsync_FOUND)
+    message("-- libfreenectsync was found")
+    include_directories(${libfreenectsync_INCLUDE_DIRS})
+else(libfreenectsync_FOUND)
+    message(WARNING "libfreenect_sync was not found, please install libfreenect (for example ros-distro-freenect-camera package) if you want to compile thin_kinect")
+    return()
+endif(libfreenectsync_FOUND)
+
+# ROS related stuff
 SET(ROS_BUILD_TYPE Release)
 SET(CMAKE_C_FLAGS_RELEASE "-O3")
 SET(CMAKE_CXX_FLAGS "-O3")
@@ -107,7 +122,6 @@ catkin_package(
 # include_directories(include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
-  ${LIBFREENECT_INCLUDE_DIR}
 )
 
 ## Declare a cpp library
@@ -118,14 +132,16 @@ include_directories(
 ## Declare a cpp executable
 add_executable(thin_kinect_test src/thin_kinect_test.c)
 target_link_libraries(thin_kinect_test
-  ${LIBFREENECT_LIBRARIES}
+  ${libfreenectsync_LIBRARY}
+  ${FREENECT_LIBRARIES}
   ${catkin_LIBRARIES}
 )
 
 ## Declare a cpp executable
 add_executable(thin_kinect_node src/thin_kinect_node.cpp)
 target_link_libraries(thin_kinect_node
-  ${LIBFREENECT_LIBRARIES}
+  ${libfreenectsync_LIBRARY}
+  ${FREENECT_LIBRARIES}
   ${catkin_LIBRARIES}
 )
 
